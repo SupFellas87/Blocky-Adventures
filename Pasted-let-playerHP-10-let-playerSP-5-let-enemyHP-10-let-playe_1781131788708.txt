@@ -1,0 +1,1023 @@
+let playerHP = 10;
+let playerSP = 5;
+let enemyHP = 10;
+
+let playerDMG = 1;
+let enemyDMG = 1;
+
+let playerTurn = true;
+let selected = null;
+let playerCharacter = null;
+let hovered = null;
+let currentAnim = "idle";
+let gameOver = false;
+
+let currentEnemy = null;
+let currentEnemies = [];
+let selectedEnemy = null;
+
+let lastTime = 0;
+let lastUpdate = 0;
+let timingActive = false;
+let sliderPos = 0;
+let sliderDir = 1;
+let timingInterval = null;
+
+let windowStart = 0;
+let windowSize = 3;
+let waitingForAttack = false;
+let aiming = false;
+
+let ballActive = false;
+let ballX = 0;
+let ballDirection = 1;
+let ballHits = 0;
+let ballCooldown = false;
+let ballState = "idle";
+let ballCanParry = false;
+let ballEnemyX = 0;
+let ballEnemyY = 0;
+let bounceQueued = false;
+let ballBounceCount = 0;
+const MAX_BOUNCES = 1;
+let selectingBallTarget = false;
+
+let turnLock = false;
+
+const isTouchDevice =
+  "ontouchstart" in window ||
+  navigator.maxTouchPoints > 0;
+
+/* ---------------- UI ---------------- */
+
+function updateUI()
+{
+  document.getElementById("playerHP").innerText = playerHP;
+  document.getElementById("enemyHP").innerText = enemyHP;
+
+  if (gameOver)
+  {
+   return; 
+    document.getElementById("turnText").innerText =
+      playerTurn ? "Your Turn" : "Enemy Turn";
+  }
+
+  // only show turn text if timing bar is NOT active
+  if (!timingActive)
+  {
+    document.getElementById("turnText").innerText =
+      playerTurn ? "Your Turn" : "Enemy Turn";
+  }
+}
+
+function clamp()
+{
+  if (playerHP < 0) playerHP = 0;
+  if (enemyHP < 0) enemyHP = 0;
+}
+
+/* ---------------- SPRITES ---------------- */
+
+const CHARACTERS =
+[
+  {
+    name: "Retro",
+    idle: "https://i.ibb.co/PvrrzdKT/Retro.png",
+    attack: "https://i.ibb.co/cXkqY46j/Retro.png",
+    attackX: -25,
+    attackY: -20,
+    attackW: 175,
+    attackH: 175,
+  },
+    
+  {
+    name: "Green",
+    idle: "https://i.ibb.co/whbtQ9QB/Green.png",
+    attack: "https://i.ibb.co/fGH5zphg/Green.png",
+    attackX: -20,
+    attackY: -20,
+    attackW: 175,
+    attackH: 175,
+  },
+  
+  {
+    name: "Red",
+    idle: "https://i.ibb.co/YFzpxccP/Red.png",
+    attack: "https://i.ibb.co/NdHb9TqP/Red.png",
+    attackX: -20,
+    attackY: -20,
+    attackW: 175,
+    attackH: 175,
+  },
+  
+  {
+    name: "Rose",
+    idle: "https://i.ibb.co/PvgcYQKr/Rose.png",
+    attack: "https://i.ibb.co/r2mtVCKS/Rose.png",
+    attackX: -8,
+    attackY: -9,
+    attackW: 140,
+    attackH: 140,
+  },
+
+  {
+    name: "Brighteyes",
+    idle: "https://i.ibb.co/fYSthqQ1/Brighteyes.png",
+    attack: "https://i.ibb.co/v4CHCNp4/Brighteyes.png",
+    attackX: -6,
+    attackY: -20,
+    attackW: 150,
+    attackH: 155,
+  }
+];
+
+CHARACTERS.forEach(c => {
+  c.idleImg = new Image();
+  c.idleImg.src = c.idle;
+
+  c.attackImg = new Image();
+  c.attackImg.src = c.attack;
+});
+
+const ENEMIES =
+[
+  {
+    name: "Nooblet",
+    hp: 2,
+    dmg: 1,
+    sprite: "https://via.placeholder.com/120?text=Nooblet",
+  },
+
+  {
+    name: "Winged Nooblet",
+    hp: 2,
+    dmg: 1,
+    tags: ["flying"],
+    
+    sprite: "https://via.placeholder.com/120?text=Winged+Nooblet",
+  },
+
+  {
+    name: "Sharp Nooblet",
+    hp: 2,
+    dmg: 1,
+    tags: ["sharp"],
+    sprite: "https://via.placeholder.com/120?text=Sharp+Nooblet",
+  },
+  
+  {
+    name: "Knightly Noob",
+    hp: 5,
+    dmg: 1,
+    sprite: "https://via.placeholder.com/120?text=Knightly+Noob",
+  },
+  
+];
+
+const SPRITES =
+      {
+  enemy_idle: "https://via.placeholder.com/120?text=Enemy",
+  enemy_dead: "https://via.placeholder.com/120?text=Dead"
+};
+
+/* IMPORTANT FIX: must be DIRECT image file */
+const idleSheet = new Image();
+idleSheet.src = "https://i.ibb.co/BH2CHHqR/your-sprite.png"; // your current sheet
+
+const attackSheet = new Image();
+attackSheet.src = "https://i.ibb.co/bMVdMvLh/your-sprite.png";
+
+const canvas = document.getElementById("selectorCanvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = 600;
+canvas.height = 300;
+
+const chars = [0, 1, 2, 3, 4];
+
+/* ---------------- DRAW SELECT SCREEN ---------------- */
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  CHARACTERS.forEach((char, i) => {
+    const img = new Image();
+
+    img.onload = () => {
+      const dx = i * 110 + 20;
+      const dy = 80;
+
+      ctx.drawImage(img, dx, dy, 100, 100);
+
+      if (selected === i) {
+        ctx.strokeStyle = "yellow";
+        ctx.strokeRect(dx, dy, 100, 100);
+      }
+    };
+
+    img.src = char.idle;
+  });
+}
+
+/* ---------------- Draw Player Sprite ---------------- */
+
+function drawPlayerSprite()
+{
+  if (selected === null) return;
+  if (!CHARACTERS[selected]) return;
+  
+  const canvas = document.getElementById("playerSprite");
+  const ctx = canvas.getContext("2d");
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const char = CHARACTERS[selected];
+  const img = (currentAnim === "attack") ? char.attackImg : char.idleImg;
+
+  if (!img || !img.complete) return;
+
+  if (currentAnim === "attack")
+  {
+    ctx.drawImage(
+      img,
+      char.attackX,
+      char.attackY,
+      char.attackW,
+      char.attackH
+    );
+  }
+  else
+  {
+    ctx.drawImage(img, 10, 10, 100, 100);
+  }
+}
+
+/* ---------------- CLICK SELECT ---------------- */
+
+canvas.onclick = (e) => {
+  const x = e.offsetX;
+  const index = Math.floor(x / 110);
+
+  if (index >= 0 && index < chars.length) {
+    selected = index;
+    draw();
+    startGame();
+  }
+};
+
+/* ---------------- GAME START ---------------- */
+
+function startGame()
+{
+  if (selected === null) return;
+
+  document.getElementById("selectScreen").style.display = "none";
+  document.getElementById("battleScreen").style.display = "block";
+
+  document.getElementById("timingContainer").style.display = "none"; // FIX
+
+  playerHP = 10;
+  currentEnemies = [];
+
+const enemyCount =
+  Math.floor(Math.random() * 4) + 1;
+
+for (let i = 0; i < enemyCount; i++)
+{
+  const enemy =
+    structuredClone(
+      ENEMIES[Math.floor(Math.random() * ENEMIES.length)]
+    );
+
+  currentEnemies.push(enemy);
+}
+
+drawEnemies();
+  playerTurn = true;
+
+  drawPlayerSprite();
+
+  updateUI();
+}
+
+function drawEnemies()
+{
+  const container = document.getElementById("enemyContainer");
+  container.innerHTML = "";
+
+  currentEnemies.forEach((enemy, index) =>
+  {
+    const wrapper = document.createElement("div");
+    wrapper.style.display = "flex";
+    wrapper.style.flexDirection = "column";
+    wrapper.style.alignItems = "center";
+    wrapper.style.cursor = "pointer";
+
+    const img = document.createElement("img");
+img.id = `enemy-${index}`;
+    img.src = enemy.sprite;
+    img.width = 120;
+
+    const hpText = document.createElement("div");
+    hpText.innerText = `HP: ${enemy.hp}`;
+
+    wrapper.appendChild(img);
+    wrapper.appendChild(hpText);
+    
+    wrapper.onclick = () =>
+{
+  selectedEnemy = index;
+
+  if (selectingBallTarget)
+  {
+    selectingBallTarget = false;
+    ballAttack(true);
+  }
+};
+
+    container.appendChild(wrapper);
+  });
+}
+
+/*----------Attack Bar----------*/
+
+function startTimingBar()
+{
+  if (timingActive) return;
+
+  timingActive = true;
+  
+  if (isTouchDevice)
+{
+  document.getElementById("timingText").innerText =
+    "Hold and release [TAP] in the green zone!";
+}
+else
+{
+  document.getElementById("timingText").innerText =
+    "Hold [SPACE] and release in the green zone!";
+}
+  document.getElementById("timingContainer").style.display = "block";
+
+  sliderPos = 0;
+  sliderDir = 1;
+
+  windowStart = Math.floor(Math.random() * (15 - windowSize));
+
+  renderTimingBar();
+}
+
+function renderTimingBar()
+{
+  const trackWidth = 300;
+
+  const slider = document.getElementById("slider");
+  const windowEl = document.getElementById("window");
+
+  slider.style.left = (sliderPos / 14) * trackWidth + "px";
+
+  windowEl.style.left = (windowStart / 14) * trackWidth + "px";
+  windowEl.style.width = (windowSize / 14) * trackWidth + "px";
+}
+
+function updateTiming()
+{
+  if (!timingActive) return;
+
+  sliderPos += sliderDir;
+
+  if (sliderPos >= 14)
+  {
+    sliderPos = 14;
+    sliderDir = -1;
+  }
+
+  if (sliderPos <= 0)
+  {
+    sliderPos = 0;
+    sliderDir = 1;
+  }
+
+  renderTimingBar();
+}
+
+function stopTimingBar()
+{
+  timingActive = false;
+
+  if (timingInterval)
+  {
+    clearInterval(timingInterval);
+    timingInterval = null;
+  }
+
+  document.getElementById("timingText").innerText = "";
+
+  const container = document.getElementById("timingContainer");
+  container.style.display = "none";
+
+  sliderPos = 0;
+  sliderDir = 1;
+}
+
+/* --------- ANIMATIONS --------- */
+
+function playerAttackAnim()
+{
+  const p = document.getElementById("playerSprite");
+  p.classList.add("attack");
+  setTimeout(() => p.classList.remove("attack"), 150);
+}
+
+function enemyHitAnim()
+{
+  const e = document.getElementById("enemyContainer");
+  e.classList.add("hit");
+  setTimeout(() => e.classList.remove("hit"), 200);
+}
+
+function playerHitAnim()
+{
+  const p = document.getElementById("playerSprite");
+  p.classList.add("hit");
+  setTimeout(() => p.classList.remove("hit"), 200);
+}
+
+/* ---------------- GAME ACTIONS ---------------- */
+
+function ballAttack(ignoreCooldown = false)
+{
+  console.log("ballAttack", ignoreCooldown, selectedEnemy);
+  if (gameOver) return;
+  if (!playerTurn && !ignoreCooldown) return;
+
+ if (!ignoreCooldown)
+{
+  selectingBallTarget = true;
+
+  document.getElementById("turnText").innerText =
+    "Select a target!";
+
+  return;
+}
+
+const target = getBallTargetEnemy();
+
+if (!target) return;
+
+  if (!ignoreCooldown)
+{
+  ballBounceCount = 0;
+}
+
+  playerTurn = false;
+  currentAnim = "attack";
+  drawPlayerSprite();
+
+  setTimeout(() =>
+  {
+    currentAnim = "idle";
+    drawPlayerSprite();
+  }, 150);
+
+  const ball = document.getElementById("ball");
+  let enemy = document.getElementById(`enemy-${selectedEnemy}`);
+
+if (!enemy) {
+  selectedEnemy = 0;
+  enemy = document.getElementById(`enemy-0`);
+}
+
+if (!enemy)
+{
+  document.getElementById("turnText").innerText =
+    "Target not found!";
+  return;
+}
+
+const enemyRect = enemy.getBoundingClientRect();
+
+  const targetX = enemyRect.left + enemyRect.width / 2;
+  const targetY = enemyRect.top + enemyRect.height / 2;
+
+  ballEnemyX = targetX;
+  ballEnemyY = targetY;
+
+  const player = document.getElementById("playerSprite");
+  const rect = player.getBoundingClientRect();
+
+  const startX = rect.left + rect.width * 0.8;
+  const startY = rect.top + rect.height * 0.45;
+
+  let x = startX;
+
+  ball.style.display = "block";
+  ball.style.left = startX + "px";
+  ball.style.top = startY + "px";
+
+  ballState = "forward";
+  ballCanParry = true;
+
+  const interval = setInterval(() =>
+  {
+    if (ballState !== "forward") return;
+
+    x += 8;
+
+    const distance = targetX - startX;
+    const progress = distance !== 0 ? (x - startX) / distance : 0;
+    const parryStart = 0.2;
+const parryEnd = 1.0;
+    
+ballCanParry =
+  progress >= parryStart &&
+  progress <= parryEnd;
+
+    if (ballCanParry)
+{
+  bounceQueued ||= true;
+  console.log("PARRY WINDOW");
+}
+    
+    const y = startY - Math.sin(progress * Math.PI) * 150;
+
+    ball.style.left = x + "px";
+    ball.style.top = y + "px";
+
+    if (progress >= 1)
+    {
+      clearInterval(interval);
+
+      // ✅ FIX: sharp enemy = ball disappears
+      if (target.tags?.includes("sharp"))
+      {
+        ball.style.display = "none";
+        ballState = "idle";
+        bounceQueued = false;
+        ballCanParry = false;
+
+        target.hp -= 1; // optional: still hurts a bit
+
+        drawEnemies();
+        cleanupEnemies();
+
+        setTimeout(() => enemyTurn(), 400);
+        return;
+      }
+
+      target.hp -= 1;
+
+      drawEnemies();
+      cleanupEnemies();
+
+      enemyHitAnim();
+
+      if (bounceQueued)
+      {
+        console.log("Bounce recast");
+        bounceQueued = false;
+        triggerBallReturn();
+      }
+      else
+{
+  ballState = "miss";
+  ballCanParry = false;
+
+  const ball = document.getElementById("ball");
+
+  let x = parseFloat(ball.style.left);
+  let y = parseFloat(ball.style.top);
+
+  const interval = setInterval(() =>
+  {
+    x += 10;
+    y -= 5;
+
+    ball.style.left = x + "px";
+    ball.style.top = y + "px";
+
+    if (x > window.innerWidth)
+    {
+      clearInterval(interval);
+      ball.style.display = "none";
+      ballState = "idle";
+
+      setTimeout(() => enemyTurn(), 300);
+    }
+  }, 16);
+}
+
+      return;
+    }
+  }, 16);
+}
+
+function attack()
+{
+  if (gameOver) return;
+  if (!playerTurn) return;
+  if (timingActive) return;
+
+  const target = getSwordTargetEnemy();
+
+  if (!target)
+  {
+    document.getElementById("turnText").innerText =
+      "There are no enemies left!";
+    return;
+  }
+
+  if (target.tags?.includes("flying"))
+  {
+    document.getElementById("turnText").innerText =
+      "There are only Flying enemies on the field!";
+    return;
+  }
+
+  startTimingBar();
+  aiming = true;
+}
+
+function heal()
+{
+  if (gameOver) return;
+  if (!playerTurn) return;
+  if (enemyHP <= 0)
+  {
+    document.getElementById("turnText").innerText = "You Win!";
+    updateUI();
+    return;
+  }
+  
+  playerHP += 4;
+  if (playerHP > 10) playerHP = 10;
+
+  playerTurn = false;
+  updateUI();
+  
+  setTimeout(() => {
+  playerTurn = false;
+  enemyTurn();
+}, 600);
+}
+
+function enemyTurn()
+{
+  if (gameOver) return;
+  if (playerTurn) return;
+  if (ballState !== "idle") return;
+
+  setTimeout(() =>
+  {
+    let totalDamage = 0;
+
+currentEnemies.forEach(enemy =>
+{
+  totalDamage += enemy.dmg;
+});
+
+playerHP -= totalDamage;
+    clamp();
+    playerHitAnim();
+
+    if (playerHP <= 0)
+    {
+      gameOver = true;
+      playerHP = 0;
+      updateUI();
+
+      document.getElementById("turnText").innerText = "You Lose!";
+      return;
+    }
+
+    playerTurn = true;
+    updateUI();
+
+  }, 400);
+}
+
+/* ---------------- OTHER ---------------- */
+
+function resetGame()
+{
+  ballBounceCount = 0;
+  bounceQueued = false;
+  ballCanParry = false;
+  ballState = "idle";
+  selectedEnemy = null;
+  selectingBallTarget = false;
+  stopTimingBar();
+
+  document.getElementById("enemyContainer").style.visibility = "visible";
+  playerTurn = true;
+  gameOver = false;
+  selected = null; // IMPORTANT
+
+  document.getElementById("battleScreen").style.display = "none";
+  document.getElementById("selectScreen").style.display = "block";
+
+  // reset sprites visually
+  draw();
+  drawPlayerSprite();
+  document.getElementById("enemyContainer").src = SPRITES.enemy_idle;
+
+  updateUI();
+}
+
+let spaceHeld = false;
+document.addEventListener("keydown", (e) =>
+{
+  if (e.code !== "Space") return;
+  if (!timingActive) return;
+
+  // prevent stacking intervals
+  if (timingInterval) return;
+
+  timingInterval = setInterval(updateTiming, 60);
+});
+
+document.addEventListener("keyup", (e) =>
+{
+  if (e.code !== "Space") return;
+
+  clearInterval(timingInterval);
+  timingInterval = null;
+
+  if (timingActive)
+  {
+    resolveAttack();
+  }
+});
+
+document.addEventListener("mousedown", () =>
+{
+  if (!timingActive) return;
+
+  if (timingInterval) return;
+
+  timingInterval = setInterval(updateTiming, 60);
+});
+
+document.addEventListener("mouseup", () =>
+{
+  clearInterval(timingInterval);
+  timingInterval = null;
+
+  if (timingActive)
+  {
+    resolveAttack();
+  }
+});
+
+document.addEventListener("touchstart", () =>
+{
+  if (!timingActive) return;
+
+  if (timingInterval) return;
+
+  timingInterval = setInterval(updateTiming, 60);
+});
+
+document.addEventListener("touchend", () =>
+{
+  clearInterval(timingInterval);
+  timingInterval = null;
+
+  if (timingActive)
+  {
+    resolveAttack();
+  }
+});
+
+function getBallTargetEnemy()
+{
+  if (selectedEnemy === null) return null;
+
+  const enemy = currentEnemies[selectedEnemy];
+
+  if (!enemy) return null;
+
+  if (enemy.hp <= 0)
+  {
+    selectedEnemy = null;
+    return null;
+  }
+
+  return enemy;
+}
+
+function getSwordTargetEnemy()
+{
+  return currentEnemies.find(
+    e => e.hp > 0 && !e.tags?.includes("flying")
+  ) || null;
+}
+
+function resolveAttack()
+{
+  if (!timingActive) return;
+
+  const target = getSwordTargetEnemy();
+
+  if (!target)
+  {
+    document.getElementById("turnText").innerText =
+      "There are no enemies left!";
+    return;
+  }
+
+  stopTimingBar();
+
+  currentAnim = "attack";
+  drawPlayerSprite();
+
+  setTimeout(() =>
+  {
+    currentAnim = "idle";
+    drawPlayerSprite();
+  }, 150);
+
+  const hit =
+    sliderPos >= windowStart &&
+    sliderPos < windowStart + windowSize;
+
+  if (hit)
+  {
+    target.hp -= (playerDMG + 1);
+  }
+  else
+  {
+    target.hp -= playerDMG;
+  }
+
+  clamp();
+  drawEnemies();
+
+  cleanupEnemies();
+
+  playerTurn = false;
+  updateUI();
+
+  setTimeout(() =>
+  {
+    enemyTurn();
+  }, 600);
+}
+
+function triggerBallReturnCheck()
+{
+  if (!ballCanParry) return;
+
+  if (ballBounceCount >= MAX_BOUNCES) return;
+
+  bounceQueued = true;
+}
+
+function triggerBallReturn()
+{
+  if (ballState === "return") return;
+
+  ballState = "return";
+
+  const ball = document.getElementById("ball");
+
+  const interval = setInterval(() =>
+  {
+    const rect = document.getElementById("playerSprite").getBoundingClientRect();
+
+    const startX = ballEnemyX;
+    const targetX = rect.left + rect.width * 0.8;
+
+    let currentX = parseFloat(ball.style.left);
+
+    currentX -= 10;
+
+    const progress =
+      (startX - currentX) / (startX - targetX);
+
+    const y =
+      ballEnemyY - Math.sin(progress * Math.PI) * 120;
+
+    ball.style.left = currentX + "px";
+    ball.style.top = y + "px";
+
+    if (currentX <= targetX)
+{
+    clearInterval(interval);
+
+    ball.style.display = "none";
+    ballState = "idle";
+
+    ballBounceCount++;
+
+    if (ballBounceCount >= MAX_BOUNCES)
+    {
+        setBallEnd();
+        return;
+    }
+
+    setTimeout(() =>
+    {
+        ballAttack(true);
+    }, 0);
+
+    return;
+}
+  }, 16);
+}
+
+function missBallParry()
+{
+  ballCanParry = false;
+
+  const ball = document.getElementById("ball");
+
+  let x = parseFloat(ball.style.left);
+  let y = parseFloat(ball.style.top);
+
+  const interval = setInterval(() =>
+  {
+    x += 10;
+    y -= 5;
+
+    ball.style.left = x + "px";
+    ball.style.top = y + "px";
+
+    if (x > window.innerWidth)
+    {
+      clearInterval(interval);
+
+      ball.style.display = "none";
+
+      setBallEnd();
+    }
+  }, 16);
+}
+
+function setBallEnd()
+{
+  ballBounceCount = 0;
+  bounceQueued = false;
+  ballCanParry = false;
+  ballState = "idle";
+  ballReturnTrigger = false;
+  selectedEnemy = null;
+
+  const ball = document.getElementById("ball");
+  ball.style.display = "none";
+
+  setTimeout(() => {
+    ballCooldown = false;
+  }, 800);
+
+  clamp();
+
+  if (enemyHP <= 0)
+  {
+    enemyHP = 0;
+    gameOver = true;
+
+    document.getElementById("enemyContainer").style.visibility = "hidden";
+    document.getElementById("turnText").innerText = "You Win!";
+    updateUI();
+    return;
+  }
+
+  playerTurn = false;
+  updateUI();
+  setTimeout(() => {
+  playerTurn = false;
+  enemyTurn();
+}, 600);
+}
+
+document.addEventListener("keydown", (e) =>
+{
+  if (e.code === "Space")
+  {
+    triggerBallReturnCheck();
+  }
+});
+
+document.addEventListener("mousedown", triggerBallReturnCheck);
+document.addEventListener("touchstart", triggerBallReturnCheck);
+
+function cleanupEnemies()
+{
+  currentEnemies = currentEnemies.filter(e => e.hp > 0);
+
+ if (currentEnemies.length === 0) {
+  selectedEnemy = null;
+}
+
+  drawEnemies();
+
+  if (currentEnemies.length === 0)
+  {
+    gameOver = true;
+    document.getElementById("turnText").innerText = "You Win!";
+  }
+}
+
+updateUI();
+draw();
